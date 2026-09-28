@@ -1,0 +1,49 @@
+# Local-only HTTPS on the usual frontend port. Used by make compose-https-up.
+services:
+  postgres:
+    ports: !reset []
+
+  frontend:
+    ports: !reset []
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: /auth
+        NEXT_PUBLIC_LEARNING_API_URL: /learning
+        NEXT_PUBLIC_GRADING_API_URL: /grading
+        ENFORCE_HTTPS: "false"
+    environment:
+      NEXT_PUBLIC_API_URL: /auth
+      NEXT_PUBLIC_LEARNING_API_URL: /learning
+      NEXT_PUBLIC_GRADING_API_URL: /grading
+      ENFORCE_HTTPS: "false"
+      PUBLIC_APP_ORIGIN: https://localhost:3000
+
+  auth-service:
+    ports: !reset []
+    environment:
+      FRONTEND_ALLOWED_ORIGINS: https://localhost:3000
+  learning-service:
+    ports: !reset []
+    environment:
+      FRONTEND_ALLOWED_ORIGINS: https://localhost:3000
+  grading-service:
+    ports: !reset []
+    environment:
+      FRONTEND_ALLOWED_ORIGINS: https://localhost:3000
+
+  local-https:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:443"
+    depends_on:
+      frontend:
+        condition: service_healthy
+    volumes:
+      - ./docker/nginx/local-https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${LOCAL_TLS_DIRECTORY:-../tls-local}:/etc/nginx/tls:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12

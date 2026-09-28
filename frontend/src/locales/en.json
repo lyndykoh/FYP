@@ -1,0 +1,40 @@
+{
+  "common": {
+    "topbarTitle": "Lumina Tutor",
+    "sidebarTitle": "Lumina Academy",
+    "sidebarSubtitle": "Student Workspace"
+  },
+  "auth": {
+    "emailPrompt": "Email",
+    "passwordPrompt": "Password",
+    "forgotPassword": "Forgot your password?",
+    "login": "Sign In",
+    "signInWithGoogle": "Sign in with Google",
+    "signInWithFacebook": "Sign in with Facebook",
+    "noAccount": "Don't have an account? ",
+    "haveAccount": "Already have an account? ",
+    "signup": "Sign Up",
+    "rememberMe": "Remember me",
+    "continueWithGoogle": "Continue with Google",
+    "continueWithFacebook": "Continue with Facebook",
+    "namePrompt": "Full name",
+    "rolePrompt": "I am a:",
+    "roles": {
+      "tutor": "Tutor",
+      "student": "Student",
+      "parent": "Parent"
+    },
+    "validation": {
+      "nameInvalid": "Please enter a valid name",
+      "emailInvalid": "Please enter a valid email address",
+      "passwordMinLength": "Use at least 12 characters with uppercase, lowercase, a number and a symbol"
+    },
+    "reset": {
+      "title": "Reset Password",
+      "emailPrompt": "Enter your email address to receive a password reset link.",
+      "sendButton": "Send Reset Link",
+      "successMessage": "If an account with that email exists, a reset link has been sent.",
+      "cancelButton": "Cancel"
+    }
+  }
+}

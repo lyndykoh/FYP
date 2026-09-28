@@ -1,0 +1,117 @@
+# Production-only overlay. Keep compose.yaml for local development and the E2E
+# overlay. Start this topology with both files; it publishes only the Nginx edge.
+#
+# docker compose --env-file .env.production --env-file ../secrets.txt \
+#   -f compose.yaml -f compose.production.yaml up --build -d
+services:
+  postgres:
+    ports: !reset []
+    networks: [application]
+
+  # Adminer is deliberately opt-in in production and is never published. Use it
+  # only during a controlled, private maintenance session.
+  adminer:
+    ports: !reset []
+    profiles: [maintenance]
+    networks: [application]
+
+  auth-service:
+    ports: !reset []
+    networks: [application]
+    environment:
+      FRONTEND_ALLOWED_ORIGINS: https://${PUBLIC_APP_DOMAIN:?Set PUBLIC_APP_DOMAIN to the public DNS hostname}
+      SECURITY_HEADERS_HSTS_ENABLED: ${SECURITY_HEADERS_HSTS_ENABLED:-false}
+
+  grading-service:
+    ports: !reset []
+    networks: [application]
+    environment:
+      FRONTEND_ALLOWED_ORIGINS: https://${PUBLIC_APP_DOMAIN:?Set PUBLIC_APP_DOMAIN to the public DNS hostname}
+      SECURITY_HEADERS_HSTS_ENABLED: ${SECURITY_HEADERS_HSTS_ENABLED:-false}
+
+  learning-service:
+    ports: !reset []
+    networks: [application]
+    environment:
+      FRONTEND_ALLOWED_ORIGINS: https://${PUBLIC_APP_DOMAIN:?Set PUBLIC_APP_DOMAIN to the public DNS hostname}
+      SECURITY_HEADERS_HSTS_ENABLED: ${SECURITY_HEADERS_HSTS_ENABLED:-false}
+
+  frontend:
+    ports: !reset []
+    networks: [application]
+    build:
+      args:
+        # Nginx strips the prefix before forwarding to the respective service.
+        NEXT_PUBLIC_API_URL: /auth
+        NEXT_PUBLIC_LEARNING_API_URL: /learning
+        NEXT_PUBLIC_GRADING_API_URL: /grading
+        ENFORCE_HTTPS: "true"
+    environment:
+      NEXT_PUBLIC_API_URL: /auth
+      NEXT_PUBLIC_LEARNING_API_URL: /learning
+      NEXT_PUBLIC_GRADING_API_URL: /grading
+      ENFORCE_HTTPS: "true"
+      PUBLIC_APP_ORIGIN: https://${PUBLIC_APP_DOMAIN:?Set PUBLIC_APP_DOMAIN to the public DNS hostname}
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      grading-service:
+        condition: service_healthy
+      learning-service:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Preserve native Nginx variables when rendering the template.
+      NGINX_ENVSUBST_FILTER: ^(PUBLIC_APP_DOMAIN|SECURITY_HEADERS_HSTS_ENABLED|TLS_CERT_FILE|TLS_KEY_FILE)$
+      TLS_CERT_FILE: ${TLS_CERT_FILE:-live/${PUBLIC_APP_DOMAIN}/fullchain.pem}
+      TLS_KEY_FILE: ${TLS_KEY_FILE:-live/${PUBLIC_APP_DOMAIN}/privkey.pem}
+      PUBLIC_APP_DOMAIN: ${PUBLIC_APP_DOMAIN:?Set PUBLIC_APP_DOMAIN to the public DNS hostname}
+      SECURITY_HEADERS_HSTS_ENABLED: ${SECURITY_HEADERS_HSTS_ENABLED:-false}
+    volumes:
+      - ./docker/nginx/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      # Mount the whole tree so renewed files and Certbot live/ symlinks remain
+      # visible. Mounting individual PEM files would pin old inodes.
+      - type: bind
+        source: ${TLS_DIRECTORY:-../letsencrypt}
+        target: /etc/nginx/tls
+        read_only: true
+      - acme_webroot:/var/www/certbot:ro
+    networks: [application]
+    healthcheck:
+      # nginx:alpine provides BusyBox wget but does not guarantee curl.
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # One-shot issuance/renewal commands only; no Docker socket in this container.
+  certbot:
+    image: certbot/certbot:v5.8.0
+    profiles: [certificates]
+    environment:
+      PUBLIC_APP_DOMAIN: ${PUBLIC_APP_DOMAIN:?Set PUBLIC_APP_DOMAIN to the public DNS hostname}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ${TLS_DIRECTORY:-../letsencrypt}:/etc/letsencrypt
+      - acme_webroot:/var/www/certbot
+    networks: [application]
+
+volumes:
+  acme_webroot:
+
+# This named bridge is private to this Compose project: no application service
+# is published to the host. It is intentionally not Docker `internal: true`,
+# because grading-service needs controlled egress to its configured AI provider.
+networks:
+  application:
+    name: ${COMPOSE_PROJECT_NAME:-lumina}_application
+    driver: bridge

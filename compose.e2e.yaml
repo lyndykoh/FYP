@@ -1,0 +1,96 @@
+# Offline-only overlay. Invoke with:
+# docker compose --env-file compose.e2e.env \
+#   -f compose.yaml -f compose.e2e.yaml \
+#   --profile e2e up --build --wait
+#
+# It changes no service in compose.yaml and routes grading's
+# OpenAI-compatible calls to a deterministic local container.
+services:
+  postgres:
+    environment:
+      POSTGRES_USER: e2e
+      POSTGRES_PASSWORD: e2e-password
+      POSTGRES_DB: e2e
+    volumes:
+      - e2e_postgres_data:/var/lib/postgresql
+  auth-service:
+    environment:
+      AUTH_DB_URL: jdbc:postgresql://postgres:5432/e2e
+      AUTH_DB_USERNAME: e2e
+      AUTH_DB_PASSWORD: e2e-password
+      JWT_SECRET: e2e-only-signing-secret-change-before-any-real-deployment
+      JWT_EXPIRATION_MS: 3600000
+      BOOTSTRAP_TUTOR_EMAIL: e2e.tutor@example.test
+      BOOTSTRAP_TUTOR_PASSWORD: E2eTutor!Pass123
+      BOOTSTRAP_TUTOR_FULL_NAME: E2E Tutor
+      # Playwright uses http://127.0.0.1:3000 by default. Keep this fixture
+      # origin aligned with the browser base URL so the actual login request is
+      # exercised rather than blocked by CORS before it reaches auth-service.
+      FRONTEND_ALLOWED_ORIGINS: http://127.0.0.1:3000
+  learning-service:
+    environment:
+      LEARNING_DB_URL: jdbc:postgresql://postgres:5432/e2e
+      LEARNING_DB_USERNAME: e2e
+      LEARNING_DB_PASSWORD: e2e-password
+      JWT_SECRET: e2e-only-signing-secret-change-before-any-real-deployment
+      LEARNING_MARKING_SYNC_KEY: e2e-only-learning-sync-key
+      AI_VISION_ENABLED: "true"
+      AI_VISION_URL: http://ai-ocr-mock:8080/v1/chat/completions
+      AI_VISION_MODEL: fixture-ocr-model
+      AI_VISION_API_KEY: offline-fixture-key
+      AI_VISION_TIMEOUT_MS: 5000
+      AI_VISION_MAX_REQUESTS_PER_MINUTE: 20
+      AI_VISION_MAX_ATTEMPTS: 2
+      AI_VISION_RETRY_DELAY_MS: 100
+      AI_VISION_STALE_RUN_MS: 5000
+      AI_VISION_WORKER_DELAY_MS: 100
+      FRONTEND_ALLOWED_ORIGINS: http://127.0.0.1:3000
+  ai-ocr-mock:
+    profiles: ["e2e"]
+    build: ./docker/e2e-ai-mock
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 3s
+      timeout: 3s
+      retries: 10
+  grading-service:
+    environment:
+      GRADING_DB_URL: jdbc:postgresql://postgres:5432/e2e
+      GRADING_DB_USERNAME: e2e
+      GRADING_DB_PASSWORD: e2e-password
+      JWT_SECRET: e2e-only-signing-secret-change-before-any-real-deployment
+      AI_ENGINE_URL: http://ai-ocr-mock:8080/v1/chat/completions
+      AI_ENGINE_MODEL: fixture-marking-model
+      AI_VISION_MODEL: fixture-ocr-model
+      AI_ENGINE_API_KEY: offline-fixture-key
+      LEARNING_MARKING_SYNC_KEY: e2e-only-learning-sync-key
+      FRONTEND_ALLOWED_ORIGINS: http://127.0.0.1:3000
+    depends_on:
+      ai-ocr-mock:
+        condition: service_healthy
+  e2e-seed:
+    profiles: ["e2e"]
+    build: ./docker/e2e-seed
+    ports:
+      - "8090:8090"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      learning-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  e2e_postgres_data:

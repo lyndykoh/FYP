@@ -1,0 +1,190 @@
+# Deployment variables are rendered by the official Nginx image at startup.
+# NGINX_ENVSUBST_FILTER in compose.production.yaml preserves native variables.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+# Keep HSTS disabled while the VM is using a self-signed certificate. Enable it
+# only after the browser trusts the edge certificate and HTTPS has been tested.
+map "${SECURITY_HEADERS_HSTS_ENABLED}" $strict_transport_security {
+    default "";
+    "true" "max-age=31536000";
+}
+
+upstream frontend_upstream {
+    server frontend:3000;
+    keepalive 16;
+}
+
+upstream auth_upstream {
+    server auth-service:8081;
+    keepalive 16;
+}
+
+upstream learning_upstream {
+    server learning-service:8083;
+    keepalive 16;
+}
+
+upstream grading_upstream {
+    server grading-service:8082;
+    keepalive 16;
+}
+
+# Reject unmatched HTTP Hosts. The health endpoint is the sole exception so the
+# container can prove that its local listener is alive without a public DNS
+# lookup.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    location = /healthz {
+        access_log off;
+        add_header Cache-Control "no-store" always;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 444;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${PUBLIC_APP_DOMAIN};
+
+    # HTTP-01 challenges must remain reachable for unattended renewal.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 308 https://${PUBLIC_APP_DOMAIN}$request_uri;
+    }
+}
+
+# Reject TLS requests sent for a host other than PUBLIC_APP_DOMAIN. A
+# certificate is still required here because TLS negotiation occurs before the
+# HTTP Host header is available.
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+
+    ssl_certificate /etc/nginx/tls/${TLS_CERT_FILE};
+    ssl_certificate_key /etc/nginx/tls/${TLS_KEY_FILE};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    return 444;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${PUBLIC_APP_DOMAIN};
+
+    ssl_certificate /etc/nginx/tls/${TLS_CERT_FILE};
+    ssl_certificate_key /etc/nginx/tls/${TLS_KEY_FILE};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+
+    # The edge owns HSTS. Upstream copies are hidden so browsers receive one
+    # authoritative policy after TLS has been terminated successfully.
+    add_header Strict-Transport-Security $strict_transport_security always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header X-Frame-Options "DENY" always;
+
+    client_max_body_size 50m;
+    client_body_timeout 30s;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 60s;
+    proxy_send_timeout 60s;
+
+    location = /healthz {
+        access_log off;
+        add_header Cache-Control "no-store" always;
+        return 200 "ok\n";
+    }
+
+    # Backend-to-backend coordination must never be exposed through the browser
+    # proxy. This prefix would otherwise be matched by the generic /learning/
+    # location below after its public prefix is stripped.
+    location ^~ /learning/api/learning/internal/ {
+        return 404;
+    }
+
+    # Nginx only proxies the documented public API prefixes. Internal service
+    # paths (including /api/learning/internal) are never reachable at the edge.
+    location /auth/ {
+        proxy_pass http://auth_upstream/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # This is the Internet-facing edge, so discard supplied proxy headers.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_hide_header Strict-Transport-Security;
+    }
+
+    location /learning/ {
+        proxy_pass http://learning_upstream/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # This is the Internet-facing edge, so discard supplied proxy headers.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_hide_header Strict-Transport-Security;
+    }
+
+    location /grading/ {
+        proxy_pass http://grading_upstream/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # This is the Internet-facing edge, so discard supplied proxy headers.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_hide_header Strict-Transport-Security;
+    }
+
+    location / {
+        proxy_pass http://frontend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # This is the Internet-facing edge, so discard supplied proxy headers.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_hide_header Strict-Transport-Security;
+    }
+}

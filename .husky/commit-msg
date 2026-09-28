@@ -1,0 +1,15 @@
+echo "🔵 Hook is running!" >> /tmp/hook-debug.log
+
+# Regex pattern for Conventional Commits
+PATTERN="^((build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\(.+\))?!?: .+)|(Merge.+)|(Revert.+)"
+
+if ! grep -qE "$PATTERN" "$1"; then
+    echo "❌ Invalid commit message format!"
+    echo ""
+    echo "Expected format: <type>(<scope>): <description>"
+    echo ""
+    echo "Allowed types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert"
+    echo ""
+    echo "Example: feat(auth): add login endpoint"
+    exit 1
+fi

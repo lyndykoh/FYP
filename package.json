@@ -1,0 +1,48 @@
+{
+  "name": "ft_transcendence",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/laiyaohao/ft_transcendence#readme",
+  "bugs": {
+    "url": "https://github.com/laiyaohao/ft_transcendence/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/laiyaohao/ft_transcendence.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run test:readme && npm run test:frontend && npm run test:auth && npm run test:grading && npm run test:learning",
+    "test:frontend": "npm --prefix frontend test",
+    "test:auth": "./backend/auth-service/mvnw -f backend/auth-service/pom.xml verify",
+    "test:grading": "./backend/grading-service/mvnw -f backend/grading-service/pom.xml verify",
+    "test:learning": "./backend/auth-service/mvnw -f backend/learning-service/pom.xml verify",
+    "test:integration": "npm run test:integration:frontend && npm run test:integration:auth && npm run test:integration:grading && npm run test:integration:learning",
+    "test:integration:frontend": "npm --prefix frontend run test:integration",
+    "test:integration:auth": "./backend/auth-service/mvnw -f backend/auth-service/pom.xml verify -DskipUnitTests=true",
+    "test:integration:grading": "./backend/grading-service/mvnw -f backend/grading-service/pom.xml verify -DskipUnitTests=true",
+    "test:integration:learning": "./backend/auth-service/mvnw -f backend/learning-service/pom.xml verify -DskipUnitTests=true",
+    "test:e2e": "npm --prefix frontend run test:e2e",
+    "test:readme": "node --test scripts/verify-readme.test.cjs",
+    "verify:readme": "node scripts/verify-readme.cjs",
+    "verify:modules": "node scripts/verify-readme.cjs --require-14",
+    "lint": "npm --prefix frontend run lint",
+    "typecheck": "npm --prefix frontend run typecheck",
+    "build": "npm run build:frontend && npm run build:auth && npm run build:grading && npm run build:learning",
+    "build:frontend": "npm --prefix frontend run build",
+    "build:auth": "./backend/auth-service/mvnw -f backend/auth-service/pom.xml package -DskipTests",
+    "build:grading": "./backend/grading-service/mvnw -f backend/grading-service/pom.xml package -DskipTests",
+    "build:learning": "./backend/auth-service/mvnw -f backend/learning-service/pom.xml package -DskipTests",
+    "verify": "npm run verify:readme && npm run lint && npm run typecheck && npm test && npm run build",
+    "compose:config": "docker compose --env-file .env.example config --quiet",
+    "compose:e2e:config": "docker compose --env-file compose.e2e.env -f compose.yaml -f compose.e2e.yaml --profile e2e config --quiet",
+    "security:audit": "npm --prefix frontend audit --omit=dev --audit-level=high",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

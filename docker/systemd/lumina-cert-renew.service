@@ -1,0 +1,11 @@
+[Unit]
+Description=Renew Lumina TLS certificates and reload Nginx
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Change to the absolute checkout path on the deployment host.
+WorkingDirectory=/opt/lumina
+ExecStart=/usr/bin/make production-renew

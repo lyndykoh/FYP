@@ -1,0 +1,172 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PW:?POSTGRES_PW is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h localhost -p 5432"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  adminer:
+    image: adminer
+    # This is an optional database browser. Keeping it outside the default
+    # application profile prevents a Docker Hub pull failure from blocking the
+    # API and frontend services needed for local development.
+    profiles: ["admin-tools"]
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  auth-service:
+    build: ./backend/auth-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AUTH_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      AUTH_DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
+      AUTH_DB_PASSWORD: ${POSTGRES_PW:?POSTGRES_PW is required}
+      AUTH_DB_SCHEMA: ${AUTH_DB_SCHEMA:-auth}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:?JWT_EXPIRATION_MS is required}
+      BOOTSTRAP_TUTOR_EMAIL: ${BOOTSTRAP_TUTOR_EMAIL:-}
+      BOOTSTRAP_TUTOR_PASSWORD: ${BOOTSTRAP_TUTOR_PASSWORD:-}
+      BOOTSTRAP_TUTOR_FULL_NAME: ${BOOTSTRAP_TUTOR_FULL_NAME:-}
+      FRONTEND_ALLOWED_ORIGINS: ${FRONTEND_ALLOWED_ORIGINS:-http://localhost:3000}
+      SECURITY_HEADERS_HSTS_ENABLED: ${SECURITY_HEADERS_HSTS_ENABLED:-false}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  grading-service:
+    build: ./backend/grading-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    environment:
+      GRADING_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      GRADING_DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
+      GRADING_DB_PASSWORD: ${POSTGRES_PW:?POSTGRES_PW is required}
+      GRADING_DB_SCHEMA: ${GRADING_DB_SCHEMA:-grading}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      AI_ENGINE_URL: ${AI_ENGINE_URL:?AI_ENGINE_URL is required}
+      AI_ENGINE_MODEL: ${AI_ENGINE_MODEL:?AI_ENGINE_MODEL is required}
+      AI_ENGINE_API_KEY: ${AI_ENGINE_API_KEY:?AI_ENGINE_API_KEY is required}
+      AI_VISION_MODEL: ${AI_VISION_MODEL:?AI_VISION_MODEL is required}
+      # Backend-only credential for the durable marking-outbox handoff.
+      # Never expose this value to the frontend.
+      LEARNING_MARKING_SYNC_KEY: ${LEARNING_MARKING_SYNC_KEY:?LEARNING_MARKING_SYNC_KEY is required}
+      LEARNING_SERVICE_URL: http://learning-service:8083
+      DOCUMENT_STORAGE_ROOT: /app/data/submissions
+      DOCUMENT_STORAGE_MAX_FILE_SIZE_BYTES: ${DOCUMENT_STORAGE_MAX_FILE_SIZE_BYTES:-20971520}
+      DOCUMENT_UPLOAD_MAX_FILE_SIZE: ${DOCUMENT_UPLOAD_MAX_FILE_SIZE:-20MB}
+      DOCUMENT_UPLOAD_MAX_REQUEST_SIZE: ${DOCUMENT_UPLOAD_MAX_REQUEST_SIZE:-100MB}
+      FRONTEND_ALLOWED_ORIGINS: ${FRONTEND_ALLOWED_ORIGINS:-http://localhost:3000}
+      SECURITY_HEADERS_HSTS_ENABLED: ${SECURITY_HEADERS_HSTS_ENABLED:-false}
+    volumes:
+      - grading_documents:/app/data/submissions
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  learning-service:
+    build: ./backend/learning-service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    environment:
+      LEARNING_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      LEARNING_DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
+      LEARNING_DB_PASSWORD: ${POSTGRES_PW:?POSTGRES_PW is required}
+      LEARNING_DB_SCHEMA: ${LEARNING_DB_SCHEMA:-learning}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # Must be the same backend-only value supplied to grading-service.
+      LEARNING_MARKING_SYNC_KEY: ${LEARNING_MARKING_SYNC_KEY:?LEARNING_MARKING_SYNC_KEY is required}
+      # OCR provider settings are deliberately passed only to the learning
+      # backend. No AI credential is supplied to the frontend container.
+      AI_VISION_ENABLED: ${AI_VISION_ENABLED:-true}
+      AI_VISION_URL: ${AI_VISION_URL:-${AI_ENGINE_URL:?AI_ENGINE_URL is required}}
+      AI_VISION_MODEL: ${AI_VISION_MODEL:?AI_VISION_MODEL is required}
+      AI_VISION_API_KEY: ${AI_VISION_API_KEY:-${AI_ENGINE_API_KEY:?AI_ENGINE_API_KEY is required}}
+      AI_VISION_TIMEOUT_MS: ${AI_VISION_TIMEOUT_MS:-30000}
+      AI_VISION_MAX_REQUESTS_PER_MINUTE: ${AI_VISION_MAX_REQUESTS_PER_MINUTE:-20}
+      AI_VISION_MAX_ATTEMPTS: ${AI_VISION_MAX_ATTEMPTS:-3}
+      AI_VISION_RETRY_DELAY_MS: ${AI_VISION_RETRY_DELAY_MS:-60000}
+      AI_VISION_STALE_RUN_MS: ${AI_VISION_STALE_RUN_MS:-180000}
+      AI_VISION_WORKER_DELAY_MS: ${AI_VISION_WORKER_DELAY_MS:-5000}
+      # Auth-service owns login identities and Student roles. Keep this private
+      # Compose address rather than calling a browser-published port.
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8081}
+      FRONTEND_ALLOWED_ORIGINS: ${FRONTEND_ALLOWED_ORIGINS:-http://localhost:3000}
+      SECURITY_HEADERS_HSTS_ENABLED: ${SECURITY_HEADERS_HSTS_ENABLED:-false}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8083/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8081}
+        NEXT_PUBLIC_LEARNING_API_URL: ${NEXT_PUBLIC_LEARNING_API_URL:-http://localhost:8083}
+        NEXT_PUBLIC_GRADING_API_URL: ${NEXT_PUBLIC_GRADING_API_URL:-http://localhost:8082}
+        ENFORCE_HTTPS: ${ENFORCE_HTTPS:-false}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      grading-service:
+        condition: service_healthy
+      learning-service:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8081}
+      NEXT_PUBLIC_LEARNING_API_URL: ${NEXT_PUBLIC_LEARNING_API_URL:-http://localhost:8083}
+      NEXT_PUBLIC_GRADING_API_URL: ${NEXT_PUBLIC_GRADING_API_URL:-http://localhost:8082}
+      ENFORCE_HTTPS: ${ENFORCE_HTTPS:-false}
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  postgres_data:
+  grading_documents:

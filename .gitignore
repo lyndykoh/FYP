@@ -1,0 +1,35 @@
+node_modules/
+**/target/
+
+.DS_Store
+**/.DS_Store
+
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!.env.production.example
+!**/.env.example
+
+# Local AI / Codex configuration
+.codex/
+**/.codex/
+.agents/
+**/.agents/
+AGENTS.md
+**/AGENTS.md
+agents.md
+**/agents.md
+SKILL.md
+**/SKILL.md
+skills.md
+**/skills.md
+
+# TLS material belongs outside the checkout.
+*.pem
+*.key
+*.crt
+letsencrypt/
+tls/
+secrets.txt
